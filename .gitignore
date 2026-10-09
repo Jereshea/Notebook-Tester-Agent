@@ -1,0 +1,5 @@
+# created at runtime (anchored to the project root, so assets/outputs/ is NOT ignored)
+/repos/
+/outputs/
+*.log
+__pycache__/

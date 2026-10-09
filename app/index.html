@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notebook Tester</title>
+<style>
+  /* Colours carry meaning: blue = in progress, green = passed as-is,
+     yellow = passed after self-correction, red = failed / could not be corrected. */
+  :root {
+    --bg: #0d1530;
+    --bar: #101a3a;
+    --card: #142046;
+    --card-line: #26346a;
+    --fg: #e8ecf8;
+    --muted: #9aa6c9;
+    --chip: #1b2a5c;
+    --chip-fg: #a9b8ff;
+    --chip-line: #3a4f9c;
+    --btn-a: #6366f1;
+    --btn-b: #2dd4bf;
+    --ok: #34d399;   --ok-bg: #0f3b2e;   --ok-line: #1f6b52;
+    --bad: #f87171;  --bad-bg: #3d1620;  --bad-line: #7a2a39;
+    --run: #60a5fa;  --run-bg: #0f2447;  --run-line: #2b4f8f;
+    --fix: #facc15;  --fix-bg: #3a3210;  --fix-line: #85711a;
+    --idle-bg: #101a3a;
+    --code: #0a1024;
+    --font: "Inter", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 15px; line-height: 1.5; }
+
+  header { background: var(--bar); border-bottom: 1px solid var(--card-line); padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+  header .logo { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, var(--btn-a), var(--btn-b)); display: grid; place-items: center; font-weight: 800; font-size: 13px; color: var(--bg); }
+  header h1 { font-size: 20px; margin: 0; font-weight: 700; }
+
+  .hero { text-align: center; padding: 40px 16px 4px; }
+  .hero h2 { font-size: clamp(26px, 4vw, 38px); margin: 0 0 10px; font-weight: 800; text-wrap: balance; }
+  .hero p { color: var(--muted); margin: 0 auto; max-width: 700px; font-size: 16px; }
+
+  /* workflow strip + controls */
+  .controls { max-width: 1040px; margin: 26px auto 0; padding: 0 24px; display: flex; flex-direction: column; gap: 14px; }
+  .flow { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 14px; flex-wrap: wrap; }
+  .flow .step { display: inline-flex; align-items: center; gap: 8px; color: var(--fg); font-weight: 600; }
+  .flow .step.opt { color: var(--muted); font-weight: 500; }
+  .flow .num { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--chip-line); color: var(--chip-fg); display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+  .flow .num.done { background: var(--ok); border-color: var(--ok); color: #03281d; }
+  .flow .num.fixed { background: var(--fix); border-color: var(--fix); color: #2a2400; }
+  .flow .num.failed { background: var(--bad); border-color: var(--bad); color: #330810; }
+  .flow .arrow { color: var(--chip-line); }
+  /* setting on the left, destructive action on the right */
+  .options { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid var(--card-line); }
+  .toggle { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; user-select: none; font-size: 14px; font-weight: 600; }
+  .toggle input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+  .toggle .track { width: 42px; height: 24px; border-radius: 999px; background: var(--chip); border: 1px solid var(--chip-line); position: relative; transition: background .15s; flex: none; }
+  .toggle .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+  .toggle input:checked + .track { background: linear-gradient(90deg, var(--btn-a), var(--btn-b)); border-color: transparent; }
+  .toggle input:checked + .track::after { transform: translateX(18px); background: #fff; }
+  .toggle input:focus-visible + .track { outline: 2px solid #fff; outline-offset: 2px; }
+  .toggle small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+  button.ghost { background: transparent; color: var(--fg); border: 1px solid var(--chip-line); border-radius: 8px; padding: 8px 14px; font: 600 13px var(--font); cursor: pointer; }
+  button.ghost:hover { border-color: var(--bad); color: var(--bad); }
+  button.ghost:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  /* two equal cards */
+  main { max-width: 1040px; margin: 0 auto; padding: 20px 24px 24px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; align-items: stretch; }
+  @media (max-width: 820px) { main { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--card); border: 1px solid var(--card-line); border-radius: 14px; padding: 24px; display: grid; grid-template-rows: auto 56px 64px 232px auto 1fr; gap: 14px; min-width: 0; height: 800px; }
+  @media (max-width: 820px) { .card { height: auto; min-height: 780px; } }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; background: var(--chip); color: var(--chip-fg); border: 1px solid var(--chip-line); border-radius: 999px; padding: 2px 10px; }
+  .card h3 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 10px; }
+  .card h3 .num { font-size: 13px; color: var(--chip-fg); border: 1.5px solid var(--chip-line); border-radius: 50%; width: 26px; height: 26px; display: grid; place-items: center; flex: none; }
+  .card .desc { margin: 0; color: var(--muted); }
+  .inputs { display: flex; flex-direction: column; gap: 12px; }
+  .hint { font-weight: 400; color: var(--muted); opacity: .8; }
+  .summary-box { background: var(--idle-bg); border: 1px dashed var(--card-line); border-radius: 10px; padding: 14px; color: var(--muted); font-size: 13px; display: flex; flex-direction: column; justify-content: center; gap: 10px; min-width: 0; overflow: hidden; }
+  .summary-box .row { display: flex; flex-direction: column; gap: 2px; }
+  .summary-box strong { color: var(--fg); font-family: var(--mono); font-weight: 500; overflow-wrap: anywhere; }
+  label { font-size: 13px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 6px; }
+  input[type=text] { width: 100%; background: var(--code); border: 1px solid var(--card-line); color: var(--fg); border-radius: 8px; padding: 10px 12px; font: 14px/1.5 var(--mono); }
+  input[type=text]:focus { outline: 2px solid var(--btn-a); border-color: transparent; }
+  .actions { display: flex; justify-content: center; }
+  button.go { border: 0; cursor: pointer; color: #fff; font: 700 15px var(--font); padding: 12px 0; width: 220px; border-radius: 8px; background: linear-gradient(90deg, var(--btn-a), var(--btn-b)); }
+  button.go:hover { filter: brightness(1.1); }
+  button.go:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  button.go[aria-busy=true] { cursor: progress; filter: grayscale(.6); opacity: .7; }
+  button.go.locked { filter: grayscale(.8); opacity: .6; }
+  button.fixbtn { align-self: flex-start; border: 1px solid var(--fix-line); background: var(--fix-bg); color: var(--fix); font: 700 13px var(--font); padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+  button.fixbtn:hover { background: #4a4014; }
+  button.fixbtn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+  /* status panel: same size in both cards, scrolls inside */
+  .status { border-radius: 10px; padding: 14px 16px; font-size: 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow-y: auto; background: var(--idle-bg); border: 1px solid var(--card-line); }
+  .status.idle { color: var(--muted); justify-content: center; align-items: center; text-align: center; }
+  .status.run { background: var(--run-bg); border-color: var(--run-line); }
+  .status.ok { background: var(--ok-bg); border-color: var(--ok-line); }
+  .status.bad { background: var(--bad-bg); border-color: var(--bad-line); }
+  .status.fixed { background: var(--fix-bg); border-color: var(--fix-line); }
+  .pill { align-self: flex-start; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; border-radius: 999px; padding: 2px 10px; }
+  .run .pill { background: var(--run); color: #04193a; }
+  .ok .pill { background: var(--ok); color: #03281d; }
+  .bad .pill { background: var(--bad); color: #330810; }
+  .fixed .pill { background: var(--fix); color: #2a2400; }
+  .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; font-size: 13px; margin: 0; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
+  .files { margin: 0; padding-left: 18px; font: 12.5px var(--mono); }
+  pre { margin: 0; background: var(--code); border-radius: 8px; padding: 10px 12px; font: 12px/1.5 var(--mono); overflow-x: auto; white-space: pre; color: #f4c7cf; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .divider { border: 0; border-top: 1px solid rgba(255,255,255,.12); margin: 4px 0; width: 100%; }
+  ul.changes { margin: 0; padding-left: 18px; font-size: 13px; }
+  .spinner { width: 12px; height: 12px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; animation: spin .8s linear infinite; vertical-align: -1px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } .toggle .track, .toggle .track::after { transition: none; } }
+  ul.cands { margin: 0; padding-left: 18px; font: 12px var(--mono); }
+  ul.cands button { background: none; border: 0; color: var(--chip-fg); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; text-align: left; }
+
+  /* storage & logs */
+  .storage { max-width: 1040px; margin: 0 auto; padding: 0 24px 56px; }
+  .storage .panel { background: var(--card); border: 1px solid var(--card-line); border-radius: 14px; padding: 18px 24px; }
+  .storage h4 { margin: 0 0 12px; font-size: 15px; }
+  .storage .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 28px; font-size: 13px; }
+  @media (max-width: 820px) { .storage .grid { grid-template-columns: minmax(0, 1fr); } }
+  .storage .grid div span { display: block; color: var(--muted); }
+  .storage .grid code { font: 12.5px var(--mono); color: var(--fg); overflow-wrap: anywhere; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; font-size: 12.5px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: 0; }
+
+  /* modal */
+  dialog { border: 1px solid var(--card-line); border-radius: 14px; background: var(--card); color: var(--fg); padding: 0; width: min(460px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  dialog::backdrop { background: rgba(5, 9, 26, .7); }
+  dialog .body { padding: 22px 24px 8px; display: flex; gap: 14px; }
+  dialog .icon { width: 36px; height: 36px; border-radius: 50%; background: var(--bad-bg); color: var(--bad); display: grid; place-items: center; font-weight: 800; flex: none; }
+  dialog.info .icon { background: var(--ok-bg); color: var(--ok); }
+  dialog h4 { margin: 0 0 6px; font-size: 17px; }
+  dialog p { margin: 0; color: var(--muted); }
+  dialog .foot { padding: 16px 24px 20px; display: flex; justify-content: flex-end; gap: 10px; }
+  dialog .foot button { border: 0; cursor: pointer; color: #fff; font: 700 14px var(--font); padding: 9px 22px; border-radius: 8px; background: linear-gradient(90deg, var(--btn-a), var(--btn-b)); }
+  dialog .foot button.danger { background: #b4314a; }
+  dialog .foot button.cancel { background: transparent; border: 1px solid var(--chip-line); color: var(--fg); }
+  .stat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  button.linkbtn { flex: none; background: none; border: 0; padding: 0; color: var(--chip-fg); font: 600 13px var(--font); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+  button.linkbtn:hover { color: #fff; }
+  button.linkbtn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  /* live progress window */
+  dialog.log { width: min(1000px, calc(100vw - 32px)); height: min(78vh, 760px); }
+  dialog.log[open] { display: flex; flex-direction: column; }
+  dialog.log .head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--card-line); }
+  dialog.log .head h4 { margin: 0; font-size: 16px; }
+  dialog.log .head .muted { margin-left: 4px; }
+  dialog.log .head .close { margin-left: auto; background: transparent; border: 1px solid var(--chip-line); color: var(--fg); border-radius: 8px; padding: 6px 14px; font: 600 13px var(--font); cursor: pointer; }
+  dialog.log pre { flex: 1; margin: 0; border-radius: 0 0 14px 14px; padding: 14px 18px; overflow: auto; color: #cfd8f3; font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  dialog.log .pill.live { background: var(--run); color: #04193a; }
+  dialog.log .pill.end { background: var(--chip); color: var(--chip-fg); }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo" aria-hidden="true">NB</div>
+  <h1>Notebook Tester</h1>
+</header>
+
+<section class="hero">
+  <h2>One-Click Notebook Testing</h2>
+  <p>Point at a GitHub repository, branch or pull request and a notebook. It is cloned and checked, every cell is executed in an isolated environment, and when something breaks you get the exact error, with an option to have the notebook corrected and re-tested.</p>
+</section>
+
+<div class="controls">
+  <div class="flow" aria-label="Workflow">
+    <span class="step"><span class="num" id="flow1">1</span> Clone &amp; check</span>
+    <span class="arrow" aria-hidden="true">→</span>
+    <span class="step"><span class="num" id="flow2">2</span> Test notebook</span>
+    <span class="arrow" aria-hidden="true">→</span>
+    <span class="step opt"><span class="num" id="flow3">3</span> Self-correct, if it fails</span>
+  </div>
+  <div class="options">
+    <label class="toggle" for="auto">
+      <input type="checkbox" id="auto">
+      <span class="track" aria-hidden="true"></span>
+      <span>Run all steps automatically<small>Test, and self-correct on failure, without extra clicks</small></span>
+    </label>
+    <button class="ghost" id="clearBtn" type="button">Clear environments &amp; outputs</button>
+  </div>
+</div>
+
+<main>
+  <!-- Step 1 -->
+  <article class="card" id="card1">
+    <div class="chips"><span class="chip">GitHub</span><span class="chip">Branch / PR</span><span class="chip">Validate</span></div>
+    <h3><span class="num">1</span>Clone repository &amp; find notebook</h3>
+    <p class="desc">Fetches the latest code of a branch or pull request, public or private, and confirms the notebook exists.</p>
+    <div class="inputs">
+      <div>
+        <label for="repo">GitHub repository URL</label>
+        <input type="text" id="repo" placeholder="https://github.com/owner/repo" autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label for="branch">Branch <span class="hint">or pull request number, e.g. #42</span></label>
+        <input type="text" id="branch" value="main" placeholder="main" autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label for="nbpath">Notebook path in the repository</label>
+        <input type="text" id="nbpath" placeholder="tutorials/example.ipynb" autocomplete="off" spellcheck="false">
+      </div>
+    </div>
+    <div class="actions"><button class="go" id="btn1" type="button">Clone &amp; Check</button></div>
+    <div class="status idle" id="st1"><div>Enter a repository, branch and notebook path, then click <b>Clone &amp; Check</b>.</div></div>
+  </article>
+
+  <!-- Step 2 (+ self-correction) -->
+  <article class="card" id="card2">
+    <div class="chips"><span class="chip">Jupyter</span><span class="chip">Isolated venv</span><span class="chip">Self-correct</span></div>
+    <h3><span class="num">2</span>Test the notebook</h3>
+    <p class="desc">Runs every cell in a dedicated environment. If a cell fails, the notebook can be corrected and re-tested.</p>
+    <div class="summary-box" id="target">
+      <div class="row"><span>Notebook to test</span><strong id="targetName">Not selected yet. Complete step 1 first.</strong></div>
+      <div class="row"><span>Branch / pull request</span><strong id="targetRef">–</strong></div>
+      <div class="row"><span>Commit</span><strong id="targetCommit">–</strong></div>
+    </div>
+    <div class="actions"><button class="go locked" id="btn2" type="button">Test Notebook</button></div>
+    <div class="status idle" id="st2"><div>The result appears here: pass, or the failing cell with its error and likely cause.</div></div>
+  </article>
+</main>
+
+<section class="storage" aria-labelledby="storageTitle">
+  <div class="panel">
+    <h4 id="storageTitle">Where results and logs are stored</h4>
+    <div class="grid">
+      <div><span>Executed &amp; corrected notebooks, run logs (one folder per test run)</span><code id="pOutputs">…</code></div>
+      <div><span>Agent logs (one file per step, named by task id)</span><code id="pAgentLogs">…</code></div>
+      <div><span>Cloned code (each test builds a fresh venv inside its output folder)</span><code id="pRepos">…</code></div>
+      <div><span>Web server log</span><code id="pServerLog">…</code></div>
+    </div>
+    <div class="legend" aria-label="Result colours">
+      <span><i style="background:var(--ok)"></i>Passed as-is</span>
+      <span><i style="background:var(--fix)"></i>Passed after self-correction</span>
+      <span><i style="background:var(--bad)"></i>Failed / could not be corrected</span>
+      <span><i style="background:var(--run)"></i>In progress</span>
+    </div>
+  </div>
+</section>
+
+<dialog id="logDlg" class="log" aria-labelledby="logTitle">
+  <div class="head">
+    <h4 id="logTitle">Progress</h4>
+    <span class="pill" id="logState">Live</span>
+    <span class="muted" id="logTask"></span>
+    <button type="button" class="close" id="logClose">Close</button>
+  </div>
+  <pre id="logPre" tabindex="0"></pre>
+</dialog>
+
+<dialog id="dlg" aria-labelledby="dlgTitle">
+  <div class="body">
+    <div class="icon" aria-hidden="true" id="dlgIcon">!</div>
+    <div>
+      <h4 id="dlgTitle"></h4>
+      <p id="dlgText"></p>
+    </div>
+  </div>
+  <div class="foot">
+    <button type="button" class="cancel" id="dlgCancel">Cancel</button>
+    <button type="button" id="dlgOk">OK</button>
+  </div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { fetch: null, test: null, fix: null, found: null, fetchBusy: false, testBusy: false, fixBusy: false, lastTest: null };
+const timers = {};
+const TERMINAL = ["done", "blocked", "triage", "archived"];
+const IDLE2 = "<div>The result appears here: pass, or the failing cell with its error and likely cause.</div>";
+
+function save() {
+  try { localStorage.setItem("nbtester", JSON.stringify({ fetch: state.fetch, test: state.test, fix: state.fix, found: state.found, repo: $("repo").value, branch: $("branch").value, nbpath: $("nbpath").value, auto: $("auto").checked })); } catch (e) {}
+}
+function load() { try { return JSON.parse(localStorage.getItem("nbtester") || "{}"); } catch (e) { return {}; } }
+
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function dur(sec) { if (sec == null) return null; sec = Math.max(0, Math.round(sec)); return sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`; }
+function since(ts) { return ts ? dur(Date.now() / 1000 - ts) : ""; }
+function kv(rows) {
+  return `<dl class="kv">${rows.filter(r => r[1] !== null && r[1] !== undefined && r[1] !== "").map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`;
+}
+function base(p) { return p ? String(p).split("/").pop() : null; }
+function filesHtml(folder, names) {
+  const list = names.filter(Boolean);
+  return kv([["Output folder", folder]]) + (list.length ? `<ul class="files">${list.map(n => `<li>${esc(n)}</li>`).join("")}</ul>` : "");
+}
+function show(el, cls, html) { el.className = "status " + cls; el.innerHTML = html; }
+function busy(btn, on) { btn.setAttribute("aria-busy", on ? "true" : "false"); }
+
+/* dialog: info/error (OK only) or confirm (Cancel + action); resolves true on confirm */
+function dialog({ title, html, confirm = null, danger = false, info = false }) {
+  return new Promise(resolve => {
+    const d = $("dlg");
+    $("dlgTitle").textContent = title; $("dlgText").innerHTML = html;
+    d.className = info ? "info" : "";
+    $("dlgIcon").textContent = info ? "✓" : "!";
+    $("dlgCancel").hidden = !confirm;
+    $("dlgOk").textContent = confirm || "OK";
+    $("dlgOk").className = danger ? "danger" : "";
+    const done = (v) => { d.close(); resolve(v); };
+    $("dlgOk").onclick = () => done(true);
+    $("dlgCancel").onclick = () => done(false);
+    d.oncancel = (e) => { e.preventDefault(); done(false); };
+    if (typeof d.showModal === "function") { d.showModal(); $("dlgOk").focus(); } else resolve(window.confirm(title));
+  });
+}
+
+function refLabel(m) {
+  if (m.pr) return `PR #${m.pr.number}${m.pr.title ? " · " + m.pr.title : ""}`;
+  return m.branch || "main";
+}
+
+function setFlow(id, cls) { const el = $(id); el.classList.remove("done", "fixed", "failed"); if (cls) el.classList.add(cls); }
+function updateFlow() {
+  setFlow("flow1", state.found ? "done" : null);
+  const s2 = $("st2").className;
+  const testFailed = state.lastTest && state.lastTest.success === false;
+  setFlow("flow2", s2.includes("ok") ? "done" : (s2.includes("fixed") || (s2.includes("bad") && testFailed)) ? "failed" : null);
+  setFlow("flow3", s2.includes("fixed") ? "fixed" : (s2.includes("bad") && state.fix) ? "failed" : null);
+  $("btn2").classList.toggle("locked", !state.found);
+  const f = state.found;
+  $("targetName").textContent = f ? `${f.repo} / ${f.notebook_path}` : "Not selected yet. Complete step 1 first.";
+  $("targetRef").textContent = f ? refLabel(f) : "–";
+  $("targetCommit").textContent = f && f.commit ? f.commit : "–";
+  $("btn1").textContent = $("auto").checked ? "Clone, Check & Test" : "Clone & Check";
+}
+
+async function api(path, body) {
+  const res = await fetch(path, body !== undefined ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+  return data;
+}
+
+function poll(kind, taskId, render) {
+  clearInterval(timers[kind]);
+  const tick = async () => {
+    try {
+      const t = await api(`/api/task/${taskId}`);
+      render(t);
+      if (TERMINAL.includes(t.status)) clearInterval(timers[kind]);
+    } catch (e) { /* transient; keep polling */ }
+  };
+  tick();
+  timers[kind] = setInterval(tick, 3000);
+}
+
+function head(pill, t, live) {   // status badge on the left, log link on the right: always visible
+  return `<div class="stat-head"><span class="pill">${esc(pill)}</span>${t ? progressLink(t, live) : ""}</div>`;
+}
+function progressLink(t, live) {
+  return `<button type="button" class="linkbtn" data-log="${esc(t.id)}" data-title="${esc(t.assignee)}">${live ? "View live progress" : "View activity log"}</button>`;
+}
+function runningHtml(t, text) {
+  const label = t.status === "running" ? "Running" : t.status === "ready" ? "Queued" : "Waiting";
+  return `${head(label, t, true)}<div><span class="spinner"></span> ${text} · ${since(t.created_at)}</div><div class="muted">Task ${esc(t.id)}</div>`;
+}
+function blockedHtml(t) {
+  return `${head("Needs attention", t, false)}<div>${esc(t.block_reason || t.summary || "This step could not finish.")}</div>`;
+}
+
+/* ---------- Step 1 ---------- */
+function renderFetch(t, isLive = true) {
+  const st = $("st1"), m = t.metadata || {};
+  if (!TERMINAL.includes(t.status)) {
+    state.fetchBusy = true; busy($("btn1"), true);
+    show(st, "run", runningHtml(t, t.status === "running" ? "Cloning the repository and looking for the notebook" : "Starting"));
+    return;
+  }
+  state.fetchBusy = false; busy($("btn1"), false);
+  if (t.status !== "done") { state.found = null; save(); updateFlow(); show(st, "bad", blockedHtml(t)); return; }
+  if (m.found) {
+    state.found = m; save(); updateFlow();
+    show(st, "ok", `${head("Notebook found", t, false)}<div>${esc(t.summary)}</div>` +
+      kv([["Repository", m.repo], [m.pr ? "Pull request" : "Branch", refLabel(m)], ["PR author", m.pr && m.pr.author ? (m.pr.author.login || m.pr.author) : null], ["PR state", m.pr ? m.pr.state : null], ["Commit", m.commit], ["Notebook", m.notebook_path], ["Cells", m.cells], ["Kernel", m.kernel], ["requirements.txt", m.has_requirements ? "yes" : "no"], ["Local copy", m.repo_dir]]));
+    if (isLive && $("auto").checked && !state.testBusy && st.dataset.autoFor !== t.id) { st.dataset.autoFor = t.id; startTest(); }
+  } else {
+    state.found = null; save(); updateFlow();
+    const list = (items, attr, label) => (items || []).length
+      ? `<div class="muted">${label} (click to use):</div><ul class="cands">${items.map(c => `<li><button type="button" ${attr}="${esc(c)}">${esc(c)}</button></li>`).join("")}</ul>` : "";
+    show(st, "bad", `${head(m.clone_ok === false ? "Branch or repository not found" : "Notebook not found", t, false)}<div>${esc(t.summary)}</div>${m.error ? `<pre>${esc(m.error)}</pre>` : ""}${list(m.candidates, "data-p", "Notebooks in this repository")}${list(m.branches, "data-b", "Branches in this repository")}`);
+    st.querySelectorAll("button[data-p]").forEach(b => b.onclick = () => { $("nbpath").value = b.dataset.p; save(); $("nbpath").focus(); });
+    st.querySelectorAll("button[data-b]").forEach(b => b.onclick = () => { $("branch").value = b.dataset.b; save(); $("branch").focus(); });
+  }
+}
+
+function resetStep2() {
+  clearInterval(timers.test); clearInterval(timers.fix);
+  Object.assign(state, { test: null, fix: null, testBusy: false, fixBusy: false, lastTest: null });
+  show($("st2"), "idle", IDLE2); busy($("btn2"), false);
+}
+
+async function startFetch() {
+  if (state.fetchBusy) return;
+  if (!$("repo").value.trim() || !$("nbpath").value.trim()) {
+    dialog({ title: "Missing details", html: "Enter the <b>GitHub repository URL</b> and the <b>notebook path</b>." });
+    return;
+  }
+  resetStep2(); state.found = null; updateFlow();
+  try {
+    state.fetchBusy = true; busy($("btn1"), true);
+    const { task_id } = await api("/api/fetch", { repo_url: $("repo").value, branch: $("branch").value.trim() || "main", notebook_path: $("nbpath").value });
+    state.fetch = task_id; save();
+    poll("fetch", task_id, renderFetch);
+  } catch (e) {
+    state.fetchBusy = false; busy($("btn1"), false);
+    show($("st1"), "bad", `<span class="pill">Error</span><div>${esc(e.message)}</div>`);
+  }
+}
+
+/* ---------- Step 2: test ---------- */
+function testResultHtml(t, m, withFixButton) {
+  if (m.success) {
+    return `${head("Run successful", t, false)}<div>${esc(t.summary)}</div>` +
+      kv([["Duration", dur(m.duration_seconds)], ["Cells", m.cells_total]]) +
+      filesHtml(m.output_dir, [base(m.executed_notebook), base(m.run_log)]) + kv([["Agent log", t.agent_log]]);
+  }
+  return `${head("Run failed", t, false)}<div>${esc(t.summary)}</div>` +
+    (withFixButton ? `<button type="button" class="fixbtn" id="fixBtn">Correct the notebook &amp; re-test</button>` : "") +
+    kv([["Error", [m.error_type, m.error_message].filter(Boolean).join(": ")], ["Failed cell", m.failed_cell != null ? `#${m.failed_cell}  ${m.failed_cell_source || ""}` : null], ["Duration", dur(m.duration_seconds)]]) +
+    (m.explanation ? `<div><strong>Likely cause:</strong> ${esc(m.explanation)}</div>` : "") +
+    (m.traceback_tail ? `<pre>${esc(m.traceback_tail)}</pre>` : "") +
+    filesHtml(m.output_dir, [base(m.executed_notebook), base(m.run_log)]) + kv([["Agent log", t.agent_log]]);
+}
+
+function renderTest(t, isLive = true) {
+  const st = $("st2"), m = t.metadata || {};
+  if (!TERMINAL.includes(t.status)) {
+    state.testBusy = true; busy($("btn2"), true);
+    const note = (t.comments || []).slice(-1)[0];
+    show(st, "run", runningHtml(t, t.status === "running" ? "Preparing the environment and running every cell" : "Starting") + (note ? `<div class="muted">${esc(note)}</div>` : ""));
+    return;
+  }
+  state.testBusy = false; busy($("btn2"), false);
+  if (t.status !== "done") { show(st, "bad", blockedHtml(t)); updateFlow(); return; }
+  state.lastTest = { id: t.id, success: !!m.success };
+  if (state.fix) { updateFlow(); return; }   // a correction is in progress / done; renderFix owns the panel
+  show(st, m.success ? "ok" : "bad", testResultHtml(t, m, !m.success));
+  const fb = $("fixBtn"); if (fb) fb.onclick = startFix;
+  updateFlow();
+  if (!m.success && isLive && $("auto").checked && st.dataset.autoFor !== t.id) { st.dataset.autoFor = t.id; startFix(); }
+}
+
+async function startTest() {
+  if (state.testBusy || state.fixBusy) return;
+  if (state.fetchBusy) {
+    dialog({ title: "Step 1 is still running", html: "Wait for <b>Clone &amp; Check</b> to finish. The test starts after the notebook has been found." });
+    return;
+  }
+  if (!state.found) {
+    dialog({ title: "Run the steps in order", html: "Complete step 1, <b>Clone &amp; Check</b>, before testing. The notebook has to be cloned and found first." });
+    return;
+  }
+  resetStep2();
+  try {
+    state.testBusy = true; busy($("btn2"), true);
+    const { task_id } = await api("/api/test", { repo_dir: state.found.repo_dir, notebook_abs: state.found.notebook_abs });
+    state.test = task_id; save();
+    poll("test", task_id, renderTest);
+  } catch (e) {
+    state.testBusy = false; busy($("btn2"), false);
+    show($("st2"), "bad", `<span class="pill">Error</span><div>${esc(e.message)}</div>`);
+  }
+}
+
+/* ---------- Step 3: self-correct ---------- */
+function renderFix(t) {
+  const st = $("st2"), m = t.metadata || {};
+  if (!TERMINAL.includes(t.status)) {
+    state.fixBusy = true; busy($("btn2"), true);
+    const note = (t.comments || []).slice(-1)[0];
+    show(st, "run", runningHtml(t, t.status === "running" ? "Correcting the notebook and re-testing the corrected copy" : "Starting the correction") + (note ? `<div class="muted">${esc(note)}</div>` : ""));
+    return;
+  }
+  state.fixBusy = false; busy($("btn2"), false);
+  if (t.status !== "done") { show(st, "bad", blockedHtml(t)); updateFlow(); return; }
+  const changes = (m.changes || []).length
+    ? `<div><strong>Changes made</strong></div><ul class="changes">${m.changes.map(c => `<li>${c.cell != null ? `Cell #${esc(c.cell)}: ` : ""}${esc(c.description)}</li>`).join("")}</ul>` : "";
+  const files = kv([["Attempts", m.attempts], ["Added %pip installs", (m.added_packages || []).join(", ")]]) +
+    filesHtml(m.output_dir, [base(m.corrected_notebook), base(m.corrected_executed), base(m.changes_file), base(m.fix_log)]) +
+    kv([["Agent log", t.agent_log]]);
+  if (m.fixed) {
+    show(st, "fixed", `${head("Corrected · now passing", t, false)}<div>${esc(t.summary)}</div>${changes}${files}<div class="muted">The original notebook and the repository were not modified. Review the change notes before applying them to the pull request.</div>`);
+  } else {
+    show(st, "bad", `${head("Could not correct", t, false)}<div><strong>Sorry, I couldn't correct this notebook.</strong> ${esc(m.explanation || t.summary || "")}</div>${m.remaining_error ? kv([["Remaining error", m.remaining_error]]) : ""}${changes}${files}`);
+  }
+  updateFlow();
+}
+
+async function startFix() {
+  if (state.fixBusy) return;
+  if (!state.lastTest || state.lastTest.success !== false) {
+    dialog({ title: "Nothing to correct", html: "Self-correction is available after a test run has failed." });
+    return;
+  }
+  try {
+    state.fixBusy = true; busy($("btn2"), true);
+    const { task_id } = await api("/api/fix", { test_task_id: state.lastTest.id });
+    state.fix = task_id; save();
+    poll("fix", task_id, renderFix);
+  } catch (e) {
+    state.fixBusy = false; busy($("btn2"), false);
+    dialog({ title: "Could not start the correction", html: esc(e.message) });
+  }
+}
+
+/* ---------- Clear ---------- */
+async function clearAll() {
+  if (state.fetchBusy || state.testBusy || state.fixBusy) {
+    dialog({ title: "A step is still running", html: "Wait for the current step to finish, then clear." });
+    return;
+  }
+  const ok = await dialog({
+    title: "Clear environments & outputs?",
+    html: "This deletes every test run folder in outputs: their virtual environments, executed and corrected notebooks, and run logs. Cloned code and agent logs are kept. The next test rebuilds the environment.",
+    confirm: "Clear", danger: true,
+  });
+  if (!ok) return;
+  try {
+    const r = await api("/api/clear", {});
+    resetStep2(); save(); updateFlow();
+    dialog({ title: "Cleared", info: true, html: `Removed ${r.venvs} environment(s) and ${r.runs} test run folder(s), freeing ${r.freed_mb} MB.` });
+  } catch (e) {
+    dialog({ title: "Could not clear", html: esc(e.message) });
+  }
+}
+
+/* ---------- live progress window ---------- */
+const STEP_NAMES = { nb_fetcher: "Clone & check", nb_tester: "Test notebook", nb_fixer: "Self-correction" };
+const logView = { id: null, offset: 0, timer: null };
+async function pullLog() {
+  const id = logView.id; if (!id) return;
+  try {
+    const [chunk, t] = await Promise.all([api(`/api/task/${id}/log?offset=${logView.offset}`), api(`/api/task/${id}`)]);
+    if (id !== logView.id) return;
+    const pre = $("logPre");
+    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    if (!chunk.exists && logView.offset === 0) pre.textContent = "Waiting for the step to start…\n";
+    else if (chunk.text) { if (logView.offset === 0) pre.textContent = ""; pre.textContent += chunk.text; }
+    logView.offset = chunk.offset;
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
+    const finished = TERMINAL.includes(t.status);
+    $("logState").textContent = finished ? (t.status === "done" ? "Finished" : "Stopped") : "Live";
+    $("logState").className = "pill " + (finished ? "end" : "live");
+    if (finished && !chunk.text) { clearInterval(logView.timer); logView.timer = null; }
+  } catch (e) { /* transient; keep polling */ }
+}
+function openLog(id, assignee) {
+  clearInterval(logView.timer);
+  Object.assign(logView, { id, offset: 0 });
+  $("logTitle").textContent = (STEP_NAMES[assignee] || "Step") + " · activity";
+  $("logTask").textContent = `Task ${id}`;
+  $("logPre").textContent = "Loading…\n";
+  $("logDlg").showModal();
+  pullLog();
+  logView.timer = setInterval(pullLog, 1500);
+}
+function closeLog() { clearInterval(logView.timer); logView.timer = null; logView.id = null; $("logDlg").close(); }
+$("logClose").onclick = closeLog;
+$("logDlg").addEventListener("cancel", (e) => { e.preventDefault(); closeLog(); });
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-log]");
+  if (b) openLog(b.dataset.log, b.dataset.title);
+});
+
+$("btn1").onclick = startFetch;
+$("btn2").onclick = startTest;
+$("clearBtn").onclick = clearAll;
+$("auto").onchange = () => { save(); updateFlow(); };
+["repo", "branch", "nbpath"].forEach(id => $(id).addEventListener("input", save));
+
+/* ---------- storage paths ---------- */
+api("/api/info").then(p => {
+  $("pOutputs").textContent = p.outputs; $("pAgentLogs").textContent = p.agent_logs;
+  $("pRepos").textContent = p.repos; $("pServerLog").textContent = p.server_log;
+}).catch(() => {});
+
+/* ---------- restore last session (never auto-starts new work) ---------- */
+(() => {
+  const s = load();
+  if (s.repo) $("repo").value = s.repo;
+  if (s.branch) $("branch").value = s.branch;
+  if (s.nbpath) $("nbpath").value = s.nbpath;
+  $("auto").checked = !!s.auto;
+  state.found = s.found || null;
+  updateFlow();
+  if (s.fetch) { state.fetch = s.fetch; $("st1").dataset.autoFor = s.fetch; poll("fetch", s.fetch, t => renderFetch(t, false)); }
+  if (s.test) { state.test = s.test; $("st2").dataset.autoFor = s.test; poll("test", s.test, t => renderTest(t, false)); }
+  if (s.fix) { state.fix = s.fix; poll("fix", s.fix, renderFix); }
+})();
+</script>
+</body>
+</html>
