@@ -4,8 +4,6 @@ A multi-agent system built on [Hermes Agent](https://github.com/NousResearch/her
 
 Use it to check that a PR's notebooks really run before you approve it.
 
-![Dashboard after an automatic run on a pull request](assets/outputs/02-pull-request-passed.png)
-
 ## What it does
 
 | Step | Button | Agent (Hermes profile) | Result |
@@ -22,16 +20,26 @@ Also included:
 - **Clear environments & outputs:** removes all test venvs and results.
 - **GitHub is read-only for the agents:** they can never commit, push or open/merge/comment on PRs (see [Permissions and security](#permissions-and-security)).
 
-## Screenshots
+## Results
 
-| | |
-|---|---|
-| ![Dashboard](assets/outputs/01-dashboard.png) **Dashboard** | ![Pull request passed](assets/outputs/02-pull-request-passed.png) **Automatic run on a pull request: passed** |
-| ![Live progress](assets/outputs/03-live-progress.png) **Live progress of a step** | ![Test failed](assets/outputs/04-test-failed.png) **Test failed: error, cause, and the correct button** |
-| ![Corrected](assets/outputs/05-corrected.png) **Self-corrected (yellow)** | ![Could not correct](assets/outputs/06-could-not-correct.png) **Could not be corrected (red)** |
-| ![Run in order](assets/outputs/07-run-in-order-popup.png) **Steps must run in order** | ![Clear](assets/outputs/08-clear-confirm.png) **Clear environments & outputs** |
+Results from real runs of this agent (Hermes v0.21.0 at commit `63279301`, Muse-Glimmer-30B). Screenshots of every run are in **[`assets/outputs/`](assets/outputs/)**.
 
----
+| Run | What the agents did | Result | Screenshot |
+|---|---|---|---|
+| Public pull request, **Run all steps automatically**: `jupyter/nbclient`, branch `#354`, `tests/files/Factorials.ipynb` | Checked out PR #354 ("docs: correct the default cell execution timeout", by agammann, OPEN) at commit `0bf058d`, found the notebook, ran it in a fresh venv | 🟢 **Passed**: 2/2 cells | [02-pull-request-passed.png](assets/outputs/02-pull-request-passed.png) |
+| Live progress of the clone step | Streamed the agent's commands as they ran (`gh pr view`, `git fetch … pull/354/head`, …) | Window updates live, LIVE → FINISHED | [03-live-progress.png](assets/outputs/03-live-progress.png) |
+| `notebooks/fixable/typo_nameerror.ipynb`: test | Ran the notebook as written | 🔴 **Failed** at cell 2: `NameError: name 'dta' is not defined`, with traceback and likely cause | [04-test-failed.png](assets/outputs/04-test-failed.png) |
+| `notebooks/fixable/typo_nameerror.ipynb`: **Correct the notebook** | Wrote `corrected.ipynb` (original untouched), changed `dta` → `data`, re-tested in a fresh venv | 🟡 **Corrected, now passing**: 4/4 cells, 1 attempt | [05-corrected.png](assets/outputs/05-corrected.png) |
+| `notebooks/not_fixable/needs_api_key.ipynb`: test, then **Correct the notebook** | Failed with `KeyError: 'WEATHER_API_KEY'`; classified as an environment problem; did not invent a key | 🔴 **Could not correct**: "cannot be fixed without user-provided credentials" | [06-could-not-correct.png](assets/outputs/06-could-not-correct.png) |
+| Clicking **Test Notebook** before step 1 | — | Pop-up: "Run the steps in order" | [07-run-in-order-popup.png](assets/outputs/07-run-in-order-popup.png) |
+| **Clear environments & outputs** | — | Confirmation before deleting venvs and outputs | [08-clear-confirm.png](assets/outputs/08-clear-confirm.png) |
+
+The empty dashboard is [01-dashboard.png](assets/outputs/01-dashboard.png).
+
+Other behaviours verified during development:
+- Notebooks that install their own packages (`%pip install …`) pass. A notebook that imports `pandas` without installing it fails with `ModuleNotFoundError`, and self-correction adds a `%pip install pandas` cell (🟡).
+- A notebook that needs a service on `localhost:8765` that isn't running is reported as **could not correct** (🔴), without mocking the service.
+- During all of these runs, no GitHub write command (commit, push, PR) reached GitHub, and the checkouts' push URL stayed disabled.
 
 ## How it works
 
